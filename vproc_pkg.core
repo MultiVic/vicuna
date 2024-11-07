@@ -1,0 +1,14 @@
+CAPI=2:
+name: "tuwien:vicuna:vproc_pkg"
+description: "Header package for Vicuna Vproc"
+
+filesets:
+  files_rtl:
+    files:
+      - rtl/vproc_pkg.sv
+    file_type: systemVerilogSource
+
+targets:
+  default:
+    filesets:
+      - files_rtl
