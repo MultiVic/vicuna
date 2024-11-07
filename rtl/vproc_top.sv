@@ -8,36 +8,47 @@ module vproc_top import vproc_pkg::*; #(
         parameter int unsigned     VMEM_W        = 32,  // vector memory interface width in bits
         parameter vreg_type        VREG_TYPE     = VREG_GENERIC,
         parameter mul_type         MUL_TYPE      = MUL_GENERIC,
-        parameter int unsigned     ICACHE_SZ     = 0,   // instruction cache size in bytes
-        parameter int unsigned     ICACHE_LINE_W = 128, // instruction cache line width in bits
-        parameter int unsigned     DCACHE_SZ     = 0,   // data cache size in bytes
-        parameter int unsigned     DCACHE_LINE_W = 512, // data cache line width in bits
-        // parameter of ibex:
-        parameter bit              DbgTriggerEn  = 1'b0,
-        parameter int unsigned     DbgHwBreakNum = 1,
-        parameter int unsigned     DmHaltAddr    = 32'h1A110800,
-        parameter int unsigned     DmExceptionAddr = 32'h1A110808,
-        parameter ibex_pkg::regfile_e RegFile    = ibex_pkg::RegFileFPGAl
+        parameter bit              DbgTriggerEn     = 1'b0,
+        parameter int unsigned     DbgHwBreakNum    = 1,
+        parameter int unsigned     DmHaltAddr       = 32'h1A110800,
+        parameter int unsigned     DmExceptionAddr  = 32'h1A110808,
+        parameter ibex_pkg::regfile_e RegFile        = ibex_pkg::RegFileFPGA
     )(
         input  logic               clk_i,
         input  logic               rst_ni,
 
-        output logic               mem_req_o,
-        output logic [31:0]        mem_addr_o,
-        output logic               mem_we_o,
-        output logic [MEM_W/8-1:0] mem_be_o,
-        output logic [MEM_W  -1:0] mem_wdata_o,
-        input  logic               mem_rvalid_i,
-        input  logic               mem_err_i,
-        input  logic [MEM_W  -1:0] mem_rdata_i,
+        // Instruction memory interface
+        output logic               instr_req_o,
+        input  logic               instr_gnt_i,
+        input  logic               instr_rvalid_i,
+        output logic [31:0]        instr_addr_o,
+        input  logic [31:0]        instr_rdata_i,
+        input  logic [6:0]         instr_rdata_intg_i,
+        input  logic               instr_err_i,
 
-        output logic [31:0]        pend_vreg_wr_map_o
+        // Data memory interface
+        output logic               data_req_o,
+        input  logic               data_gnt_i,
+        input  logic               data_rvalid_i,
+        output logic               data_we_o,
+        output logic [3:0]         data_be_o,
+        output logic [31:0]        data_addr_o,
+        output logic [31:0]        data_wdata_o,
+        output logic [6:0]         data_wdata_intg_o,
+        input  logic [31:0]        data_rdata_i,
+        input  logic [6:0]         data_rdata_intg_i,
+        input  logic               data_err_i,
+
+        // Interrupt inputs
+        input  logic               irq_software_i,
+        input  logic               irq_timer_i,
+        input  logic               irq_external_i,
+        input  logic [14:0]        irq_fast_i,
+        input  logic               irq_nm_i,
+
+        // Debug interface
+        input  logic               debug_req_i
     );
-
-    if ((MEM_W & (MEM_W - 1)) != 0 || MEM_W < 32) begin
-        $fatal(1, "The memory bus width MEM_W must be at least 32 and a power of two.  ",
-                  "The current value of %d is invalid.", MEM_W);
-    end
 
     // Reset synchronizer (sync reset is used for Vicuna by default, async reset for the core)
     logic [3:0] rst_sync_qn;
@@ -53,14 +64,6 @@ module vproc_top import vproc_pkg::*; #(
 
     ///////////////////////////////////////////////////////////////////////////
     // MAIN CORE INTEGRATION
-
-    // Instruction fetch interface
-    logic        instr_req;
-    logic [31:0] instr_addr;
-    logic        instr_gnt;
-    logic        instr_rvalid;
-    logic        instr_err;
-    logic [31:0] instr_rdata;
 
     // Data load & store interface
     logic        sdata_req;
@@ -106,7 +109,7 @@ module vproc_top import vproc_pkg::*; #(
         12'hC22  // vlenb
     };
 
-`ifdef MAIN_CORE_IBEX
+
     localparam bit USE_XIF_MEM = '0;
 
     logic        cpi_instr_valid;
@@ -123,32 +126,35 @@ module vproc_top import vproc_pkg::*; #(
 
     ibex_top #(
         .RegFile                ( RegFile                            ),
-        .MHPCounterNum          ( 10                                 ),
+        .MHPMCounterNum         ( 10                                 ),
         .RV32M                  ( ibex_pkg::RV32MFast                ),
         .RV32B                  ( ibex_pkg::RV32BNone                ),
+        .ExternalCSRs           ( VECT_CSR_CNT                       ),
         .DbgTriggerEn           ( DbgTriggerEn                       ),
         .DbgHwBreakNum          ( DbgHwBreakNum                      ),
-        .DmHaltAddr             ( 32'h00000000                       ),
-        .DmExceptionAddr        ( 32'h00000000                       ),
-        .ExternalCSRs           ( VECT_CSR_CNT                       ),
+        .DmHaltAddr             ( DmHaltAddr                         ),
+        .DmExceptionAddr        ( DmExceptionAddr                    ),
+
         // LOAD-FP, STORE-FP and VECTOR opcodes
         .CoprocOpcodes          ( 32'h00200202                       )
     ) u_core (
         .clk_i                  ( clk_i                              ),
         .rst_ni                 ( rst_ni                             ),
 
-        .test_en_i              ( 1'b0                               ),
-        .ram_cfg_i              ( prim_ram_1p_pkg::ram_1p_cfg_t'('0) ),
+        .test_en_i              ( 'b0                                ),
+        .scan_rst_ni            ( 1'b1                               ),
+        .ram_cfg_i              ( 'b0                                ),
 
         .hart_id_i              ( 32'b0                              ),
         .boot_addr_i            ( 32'h00000000                       ),
 
-        .instr_req_o            ( instr_req                          ),
-        .instr_gnt_i            ( instr_gnt                          ),
-        .instr_rvalid_i         ( instr_rvalid                       ),
-        .instr_addr_o           ( instr_addr                         ),
-        .instr_rdata_i          ( instr_rdata                        ),
-        .instr_err_i            ( instr_err                          ),
+        .instr_req_o            ( instr_req_o                        ),
+        .instr_gnt_i            ( instr_gnt_i                        ),
+        .instr_rvalid_i         ( instr_rvalid_i                     ),
+        .instr_addr_o           ( instr_addr_o                       ),
+        .instr_rdata_i          ( instr_rdata_i                      ),
+        .instr_rdata_intg_i     ( instr_rdata_intg_i                 ),
+        .instr_err_i            ( instr_err_i                        ),
 
         .data_req_o             ( sdata_req                          ),
         .data_gnt_i             ( sdata_gnt                          ),
@@ -157,7 +163,9 @@ module vproc_top import vproc_pkg::*; #(
         .data_be_o              ( sdata_be                           ),
         .data_addr_o            ( sdata_addr                         ),
         .data_wdata_o           ( sdata_wdata                        ),
+        .data_wdata_intg_o      ( data_wdata_intg_o                  ), // only used by scalar unit
         .data_rdata_i           ( sdata_rdata                        ),
+        .data_rdata_intg_i      ( data_rdata_intg_i                  ), // only used by scalar unit
         .data_err_i             ( sdata_err                          ),
 
         .cpi_req_o              ( cpi_instr_valid                    ),
@@ -170,26 +178,31 @@ module vproc_top import vproc_pkg::*; #(
         .cpi_res_valid_i        ( cpi_result_valid                   ),
         .cpi_res_i              ( cpi_xreg                           ),
 
-        .irq_software_i         ( 1'b0                               ),
-        .irq_timer_i            ( 1'b0                               ),
-        .irq_external_i         ( 1'b0                               ),
-        .irq_fast_i             ( 15'b0                              ),
-        .irq_nm_i               ( 1'b0                               ),
+        .irq_software_i         ( irq_software_i                     ),
+        .irq_timer_i            ( irq_timer_i                        ),
+        .irq_external_i         ( irq_external_i                     ),
+        .irq_fast_i             ( irq_fast_i                         ),
+        .irq_nm_i               ( irq_nm_i                           ),
 
         .ecsr_addr_i            ( vect_csr_addr                      ),
         .ecsr_rdata_i           ( vect_csr_rdata                     ),
         .ecsr_we_o              ( vect_csr_we                        ),
         .ecsr_wdata_o           ( vect_csr_wdata                     ),
 
-        .debug_req_i            ( 1'b0                               ),
+        .scramble_key_valid_i   ('0                                  ),
+        .scramble_key_i         ('0                                  ),
+        .scramble_nonce_i       ('0                                  ),
+        .scramble_req_o         (                                    ),
+
+        .debug_req_i            ( debug_req_i                        ),
         .crash_dump_o           (                                    ),
+        .double_fault_seen_o    (                                    ),
 
         .fetch_enable_i         ( 1'b1                               ),
         .alert_minor_o          (                                    ),
-        .alert_major_o          (                                    ),
-        .core_sleep_o           (                                    ),
-
-        .scan_rst_ni            ( 1'b1                               )
+        .alert_major_internal_o (                                    ),
+        .alert_major_bus_o      (                                    ),
+        .core_sleep_o           (                                    )
     );
 
     logic [X_ID_WIDTH-1:0] cpi_instr_id_q, cpi_instr_id_q2, cpi_instr_id_d;
@@ -232,138 +245,6 @@ module vproc_top import vproc_pkg::*; #(
     assign vcore_xif.result_ready = 1'b1;
     assign cpi_result_valid       = vcore_xif.result_valid & vcore_xif.result.we;
     assign cpi_xreg               = vcore_xif.result.data;
-
-`else
-`ifdef MAIN_CORE_CV32E40X
-    localparam bit USE_XIF_MEM = VMEM_W == 32;
-
-    // eXtension Interface
-    if_xif #(
-        .X_NUM_RS    ( 2  ),
-        .X_MEM_WIDTH ( 32 ),
-        .X_RFR_WIDTH ( 32 ),
-        .X_RFW_WIDTH ( 32 ),
-        .X_MISA      ( '0 )
-    ) host_xif();
-
-    cv32e40x_core #(
-        .X_EXT               ( 1'b1          )
-    ) core (
-        .clk_i               ( clk_i         ),
-        .rst_ni              ( rst_ni        ),
-        .scan_cg_en_i        ( 1'b0          ),
-        .boot_addr_i         ( 32'h00000080  ),
-        .dm_exception_addr_i ( '0            ),
-        .dm_halt_addr_i      ( '0            ),
-        .mhartid_i           ( '0            ),
-        .mimpid_patch_i      ( '0            ),
-        .mtvec_addr_i        ( 32'h00000000  ),
-        .instr_req_o         ( instr_req     ),
-        .instr_gnt_i         ( instr_gnt     ),
-        .instr_rvalid_i      ( instr_rvalid  ),
-        .instr_addr_o        ( instr_addr    ),
-        .instr_memtype_o     (               ),
-        .instr_prot_o        (               ),
-        .instr_dbg_o         (               ),
-        .instr_rdata_i       ( instr_rdata   ),
-        .instr_err_i         ( instr_err     ),
-        .data_req_o          ( sdata_req     ),
-        .data_gnt_i          ( sdata_gnt     ),
-        .data_rvalid_i       ( sdata_rvalid  ),
-        .data_addr_o         ( sdata_addr    ),
-        .data_be_o           ( sdata_be      ),
-        .data_we_o           ( sdata_we      ),
-        .data_wdata_o        ( sdata_wdata   ),
-        .data_memtype_o      (               ),
-        .data_prot_o         (               ),
-        .data_dbg_o          (               ),
-        .data_atop_o         (               ),
-        .data_rdata_i        ( sdata_rdata   ),
-        .data_err_i          ( sdata_err     ),
-        .data_exokay_i       ( 1'b0          ),
-        .mcycle_o            (               ),
-        .xif_compressed_if   ( host_xif      ),
-        .xif_issue_if        ( host_xif      ),
-        .xif_commit_if       ( host_xif      ),
-        .xif_mem_if          ( host_xif      ),
-        .xif_mem_result_if   ( host_xif      ),
-        .xif_result_if       ( host_xif      ),
-        .irq_i               ( '0            ),
-        .clic_irq_i          ( '0            ),
-        .clic_irq_id_i       ( '0            ),
-        .clic_irq_level_i    ( '0            ),
-        .clic_irq_priv_i     ( '0            ),
-        .clic_irq_shv_i      ( '0            ),
-        .fencei_flush_req_o  (               ),
-        .fencei_flush_ack_i  ( 1'b0          ),
-        .debug_req_i         ( 1'b0          ),
-        .debug_havereset_o   (               ),
-        .debug_running_o     (               ),
-        .debug_halted_o      (               ),
-        .fetch_enable_i      ( 1'b1          ),
-        .core_sleep_o        (               )
-    );
-
-    assign vcore_xif.issue_valid         = host_xif.issue_valid;
-    assign host_xif.issue_ready          = vcore_xif.issue_ready;
-    assign vcore_xif.issue_req.instr     = host_xif.issue_req.instr;
-    assign vcore_xif.issue_req.mode      = host_xif.issue_req.mode;
-    assign vcore_xif.issue_req.id        = host_xif.issue_req.id;
-    assign vcore_xif.issue_req.rs        = host_xif.issue_req.rs;
-    assign vcore_xif.issue_req.rs_valid  = host_xif.issue_req.rs_valid;
-    assign host_xif.issue_resp.accept    = vcore_xif.issue_resp.accept;
-    assign host_xif.issue_resp.writeback = vcore_xif.issue_resp.writeback;
-    assign host_xif.issue_resp.dualwrite = vcore_xif.issue_resp.dualwrite;
-    assign host_xif.issue_resp.dualread  = vcore_xif.issue_resp.dualread;
-    assign host_xif.issue_resp.loadstore = vcore_xif.issue_resp.loadstore;
-    assign host_xif.issue_resp.exc       = vcore_xif.issue_resp.exc;
-
-    assign vcore_xif.commit_valid       = host_xif.commit_valid;
-    assign vcore_xif.commit.id          = host_xif.commit.id;
-    assign vcore_xif.commit.commit_kill = host_xif.commit.commit_kill;
-
-    assign host_xif.result_valid   = vcore_xif.result_valid;
-    assign vcore_xif.result_ready  = host_xif.result_ready;
-    assign host_xif.result.id      = vcore_xif.result.id;
-    assign host_xif.result.data    = vcore_xif.result.data;
-    assign host_xif.result.rd      = vcore_xif.result.rd;
-    assign host_xif.result.we      = vcore_xif.result.we;
-    assign host_xif.result.exc     = vcore_xif.result.exc;
-    assign host_xif.result.exccode = vcore_xif.result.exccode;
-    assign host_xif.result.err     = vcore_xif.result.err;
-    assign host_xif.result.dbg     = vcore_xif.result.dbg;
-
-    if (USE_XIF_MEM) begin
-        assign host_xif.mem_valid         = vcore_xif.mem_valid;
-        assign vcore_xif.mem_ready        = host_xif.mem_ready;
-        assign host_xif.mem_req.id        = vcore_xif.mem_req.id;
-        assign host_xif.mem_req.addr      = vcore_xif.mem_req.addr;
-        assign host_xif.mem_req.mode      = vcore_xif.mem_req.mode;
-        assign host_xif.mem_req.we        = vcore_xif.mem_req.we;
-        assign host_xif.mem_req.size      = vcore_xif.mem_req.size;
-        assign host_xif.mem_req.be        = vcore_xif.mem_req.be;
-        assign host_xif.mem_req.attr      = vcore_xif.mem_req.attr;
-        assign host_xif.mem_req.wdata     = vcore_xif.mem_req.wdata;
-        assign host_xif.mem_req.last      = vcore_xif.mem_req.last;
-        assign host_xif.mem_req.spec      = vcore_xif.mem_req.spec;
-        assign vcore_xif.mem_resp.exc     = host_xif.mem_resp.exc;
-        assign vcore_xif.mem_resp.exccode = host_xif.mem_resp.exccode;
-        assign vcore_xif.mem_resp.dbg     = host_xif.mem_resp.dbg;
-        assign vcore_xif.mem_result_valid = host_xif.mem_result_valid;
-        assign vcore_xif.mem_result.id    = host_xif.mem_result.id;
-        assign vcore_xif.mem_result.rdata = host_xif.mem_result.rdata;
-        assign vcore_xif.mem_result.err   = host_xif.mem_result.err;
-        assign vcore_xif.mem_result.dbg   = host_xif.mem_result.dbg;
-    end
-
-    assign vect_csr_we    = '{default:'0};
-    assign vect_csr_wdata = '{default:'0};
-
-`else
-    localparam bit USE_XIF_MEM = '0;
-    $fatal(1, "One of the MAIN_CORE_* macros must be defined to select a main core.");
-`endif
-`endif
 
 
     ///////////////////////////////////////////////////////////////////////////
@@ -447,9 +328,7 @@ module vproc_top import vproc_pkg::*; #(
         .csr_vxrm_set_i     ( csr_vxrm_wren      ),
         .csr_vxsat_o        ( csr_vxsat_rd       ),
         .csr_vxsat_i        ( csr_vxsat_wr       ),
-        .csr_vxsat_set_i    ( csr_vxsat_wren     ),
-
-        .pend_vreg_wr_map_o ( pend_vreg_wr_map_o )
+        .csr_vxsat_set_i    ( csr_vxsat_wren     )
     );
 
     // Extract vector unit memory signals from extension interface
@@ -492,7 +371,11 @@ module vproc_top import vproc_pkg::*; #(
     logic                sdata_waiting, vdata_waiting;
     logic [31:0]         sdata_wait_addr;
     logic [X_ID_WIDTH-1:0] vdata_wait_id;
+
+    // Vector unit stores are always prioritized over all scalar transactions
+    // Vector unit loads are prioritized over scalar stores
     assign sdata_hold = ~USE_XIF_MEM & (vdata_req | vect_pending_store | (vect_pending_load & sdata_we));
+    // Combine vector and scalar signals into the output data signals
     always_comb begin
         data_req   = vdata_req | (sdata_req & ~sdata_hold);
         data_addr  = sdata_addr;
@@ -509,14 +392,24 @@ module vproc_top import vproc_pkg::*; #(
             data_wdata = vdata_wdata;
         end
     end
+
+    // Data arbiter state machine
+    // Vector requests are always granted when memory access is granted
+    // Scalar requests are granted when no vector request is pending (~sdata_hold)
     assign sdata_gnt = data_gnt & sdata_req & ~sdata_hold;
     assign vdata_gnt = data_gnt & vdata_req;
+
+    // Number of words transmitted per vector transaction (Vector Register length / Vector Memory width (usually 32 bit))
+    localparam int WordsPerVTrans = vproc_config::VREG_W / VMEM_W;
+    logic [5:0] vdata_counter;
     always_ff @(posedge clk_i or negedge rst_ni) begin
+        // Reset state machine on reset
         if (~rst_ni) begin
             sdata_waiting   <= 1'b0;
             vdata_waiting   <= 1'b0;
             sdata_wait_addr <= '0;
             vdata_wait_id   <= '0;
+            vdata_counter   <= 2'b0;
         end else begin
             if (sdata_gnt) begin
                 sdata_waiting   <= 1'b1;
@@ -525,16 +418,32 @@ module vproc_top import vproc_pkg::*; #(
             else if (sdata_rvalid) begin
                 sdata_waiting <= 1'b0;
             end
-            if (vdata_gnt) begin
+
+            // Vector transaction is started directly when granted
+            if (vdata_gnt & ~vdata_waiting) begin
                 vdata_waiting <= 1'b1;
                 vdata_wait_id <= vdata_req_id;
             end
-            else if (vdata_rvalid) begin
-                vdata_waiting <= 1'b0;
+            if (vdata_rvalid & vdata_waiting) begin
+                // Count the number of words received for vector reads
+                vdata_counter <= vdata_counter + 1;
+
+                // Reset counter, when all words are received
+                // If granted start the next transaction immediately
+                if (vdata_counter == (WordsPerVTrans-1)) begin
+                    vdata_waiting <= vdata_gnt;
+                    if (vdata_gnt) begin
+                        vdata_wait_id <= vdata_req_id;
+                    end
+                    vdata_counter <= 2'b0;
+                end
             end
         end
     end
-    assign sdata_rvalid = sdata_waiting & data_rvalid;
+
+    // If not waiting for vector data, received data is scalar
+    assign sdata_rvalid = ~vdata_waiting & data_rvalid;
+    // Received data is vector data when vdata_waiting
     assign vdata_rvalid = vdata_waiting & data_rvalid;
     assign sdata_err    = data_err;
     assign vdata_err    = data_err;
@@ -543,182 +452,13 @@ module vproc_top import vproc_pkg::*; #(
     assign vdata_res_id = vdata_wait_id;
 
 
-    ///////////////////////////////////////////////////////////////////////////
-    // CACHES
-
-    // instruction cache
-    logic             imem_req;
-    logic             imem_gnt;
-    logic [31:0]      imem_addr;
-    logic             imem_rvalid;
-    logic [MEM_W-1:0] imem_rdata;
-    logic             imem_err;
-    generate
-        if (ICACHE_SZ != 0) begin
-            localparam int unsigned ICACHE_WAY_LEN = ICACHE_SZ / (ICACHE_LINE_W / 8) / 2;
-            vproc_cache #(
-                .ADDR_BIT_W   ( 32                ),
-                .CPU_BYTE_W   ( 4                 ),
-                .MEM_BYTE_W   ( MEM_W / 8         ),
-                .LINE_BYTE_W  ( ICACHE_LINE_W / 8 ),
-                .WAY_LEN      ( ICACHE_WAY_LEN    )
-            ) icache (
-                .clk_i        ( clk_i             ),
-                .rst_ni       ( rst_ni            ),
-                .hold_mem_i   ( 1'b0              ),
-                .cpu_req_i    ( instr_req         ),
-                .cpu_addr_i   ( instr_addr        ),
-                .cpu_we_i     ( '0                ),
-                .cpu_be_i     ( '0                ),
-                .cpu_wdata_i  ( '0                ),
-                .cpu_gnt_o    ( instr_gnt         ),
-                .cpu_rvalid_o ( instr_rvalid      ),
-                .cpu_rdata_o  ( instr_rdata       ),
-                .cpu_err_o    ( instr_err         ),
-                .mem_req_o    ( imem_req          ),
-                .mem_addr_o   ( imem_addr         ),
-                .mem_we_o     (                   ),
-                .mem_wdata_o  (                   ),
-                .mem_gnt_i    ( imem_gnt          ),
-                .mem_rvalid_i ( imem_rvalid       ),
-                .mem_rdata_i  ( imem_rdata        ),
-                .mem_err_i    ( imem_err          )
-            );
-        end else begin
-            assign imem_req     = instr_req;
-            assign imem_addr    = instr_addr;
-            assign instr_gnt    = imem_gnt;
-            assign instr_rvalid = imem_rvalid;
-            assign instr_rdata  = imem_rdata[31:0];
-            assign instr_err    = imem_err;
-        end
-    endgenerate
-
-    // data cache
-    logic               dmem_req;
-    logic               dmem_gnt;
-    logic [31:0]        dmem_addr;
-    logic               dmem_we;
-    logic [MEM_W/8-1:0] dmem_be;
-    logic [MEM_W  -1:0] dmem_wdata;
-    logic               dmem_rvalid;
-    logic               dmem_wvalid;
-    logic [MEM_W  -1:0] dmem_rdata;
-    logic               dmem_err;
-    generate
-        if (DCACHE_SZ != 0) begin
-            localparam int unsigned DCACHE_WAY_LEN = DCACHE_SZ / (DCACHE_LINE_W / 8) / 2;
-            // hold memory access (allows lookup only) for main core requests
-            // in case of pending vector loads / stores
-            logic hold_mem;
-            always_ff @(posedge clk_i) begin
-                hold_mem <= ~USE_XIF_MEM & ~vdata_req & vect_pending_store & vect_pending_load;
-            end
-            vproc_cache #(
-                .ADDR_BIT_W   ( 32                ),
-                .CPU_BYTE_W   ( VMEM_W / 8        ),
-                .MEM_BYTE_W   ( MEM_W / 8         ),
-                .LINE_BYTE_W  ( DCACHE_LINE_W / 8 ),
-                .WAY_LEN      ( DCACHE_WAY_LEN    )
-            ) vcache (
-                .clk_i        ( clk_i             ),
-                .rst_ni       ( rst_ni            ),
-                .hold_mem_i   ( hold_mem          ),
-                .cpu_req_i    ( data_req          ),
-                .cpu_addr_i   ( data_addr         ),
-                .cpu_we_i     ( data_we           ),
-                .cpu_be_i     ( data_be           ),
-                .cpu_wdata_i  ( data_wdata        ),
-                .cpu_gnt_o    ( data_gnt          ),
-                .cpu_rvalid_o ( data_rvalid       ),
-                .cpu_rdata_o  ( data_rdata        ),
-                .cpu_err_o    ( data_err          ),
-                .mem_req_o    ( dmem_req          ),
-                .mem_we_o     ( dmem_we           ),
-                .mem_addr_o   ( dmem_addr         ),
-                .mem_wdata_o  ( dmem_wdata        ),
-                .mem_gnt_i    ( dmem_gnt          ),
-                .mem_rvalid_i ( dmem_rvalid       ),
-                .mem_rdata_i  ( dmem_rdata        ),
-                .mem_err_i    ( dmem_err          )
-            );
-            assign dmem_be = '1;
-        end else begin
-            if (MEM_W != VMEM_W) begin
-                $fatal(1, "If no data cache is used, the memory bus width MEM_W and the vector ",
-                          "memory interface width VMEM_W must be equal.  ",
-                          "Currently, MEM_W == %d and VMEM_W == %d.", MEM_W, VMEM_W);
-            end
-
-            assign dmem_req    = data_req;
-            assign dmem_addr   = data_addr;
-            assign dmem_we     = data_we;
-            assign dmem_be     = data_be;
-            assign dmem_wdata  = data_wdata;
-            assign data_gnt    = dmem_gnt;
-            assign data_rvalid = dmem_rvalid | dmem_wvalid;
-            assign data_rdata  = dmem_rdata;
-            assign data_err    = dmem_err;
-        end
-    endgenerate
-
-
-
-    ///////////////////////////////////////////////////////////////////////////
-    // MEMORY ARBITER
-
-    always_comb begin
-        mem_req_o   = imem_req | dmem_req;
-        mem_addr_o  = imem_addr;
-        mem_we_o    = 1'b0;
-        mem_be_o    = dmem_be;
-        mem_wdata_o = dmem_wdata;
-        if (dmem_req) begin
-            mem_we_o   = dmem_we;
-            mem_addr_o = dmem_addr;
-        end
-    end
-    assign imem_gnt = imem_req & ~dmem_req;
-    assign dmem_gnt =             dmem_req;
-
-    // shift register keeping track of the source of mem requests for up to 32 cycles
-    logic        req_sources  [32];
-    logic        req_write    [32]; // keeping track of whether the request was a write
-    logic [31:0] imem_req_addr[32]; // keeping track of address for instruction memory requests
-    logic [4:0]  req_count;
-    always_ff @(posedge clk_i or negedge rst_ni) begin
-        if (~rst_ni) begin
-            req_count <= '0;
-        end else begin
-            if (mem_rvalid_i) begin
-                for (int i = 0; i < 31; i++) begin
-                    req_sources  [i] <= req_sources  [i+1];
-                    req_write    [i] <= req_write    [i+1];
-                    imem_req_addr[i] <= imem_req_addr[i+1];
-                end
-                if (~imem_gnt & ~dmem_gnt) begin
-                    req_count <= req_count - 1;
-                end else begin
-                    req_sources  [req_count-1] <= dmem_gnt;
-                    req_write    [req_count-1] <= dmem_we;
-                    imem_req_addr[req_count-1] <= imem_addr;
-                end
-            end
-            else if (imem_gnt | dmem_gnt) begin
-                req_sources  [req_count] <= dmem_gnt;
-                req_write    [req_count] <= dmem_we;
-                imem_req_addr[req_count] <= imem_addr;
-                req_count                <= req_count + 1;
-            end
-        end
-    end
-    assign imem_rvalid = mem_rvalid_i & ~req_sources[0];
-    assign dmem_rvalid = mem_rvalid_i &  req_sources[0] & ~req_write[0];
-    assign dmem_wvalid = mem_rvalid_i &  req_sources[0] &  req_write[0];
-    assign imem_err    = mem_err_i;
-    assign dmem_err    = mem_err_i;
-    assign imem_rdata  = (ICACHE_SZ != 0) ? mem_rdata_i : mem_rdata_i[
-        (imem_req_addr[0][$clog2(MEM_W)-1:0] & {3'b000, {($clog2(MEM_W/8)-2){1'b1}}, 2'b00})*8 +: 32];
-    assign dmem_rdata  = mem_rdata_i;
-
+    assign data_req_o    = data_req;
+    assign data_addr_o   = data_addr;
+    assign data_we_o     = data_we;
+    assign data_be_o     = data_be;
+    assign data_wdata_o  = data_wdata;
+    assign data_gnt      = data_gnt_i;
+    assign data_rvalid   = data_rvalid_i;
+    assign data_rdata    = data_rdata_i;
+    assign data_err      = data_err_i;
 endmodule
