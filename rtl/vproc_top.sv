@@ -11,7 +11,13 @@ module vproc_top import vproc_pkg::*; #(
         parameter int unsigned     ICACHE_SZ     = 0,   // instruction cache size in bytes
         parameter int unsigned     ICACHE_LINE_W = 128, // instruction cache line width in bits
         parameter int unsigned     DCACHE_SZ     = 0,   // data cache size in bytes
-        parameter int unsigned     DCACHE_LINE_W = 512  // data cache line width in bits
+        parameter int unsigned     DCACHE_LINE_W = 512, // data cache line width in bits
+        // parameter of ibex:
+        parameter bit              DbgTriggerEn  = 1'b0,
+        parameter int unsigned     DbgHwBreakNum = 1,
+        parameter int unsigned     DmHaltAddr    = 32'h1A110800,
+        parameter int unsigned     DmExceptionAddr = 32'h1A110808,
+        parameter ibex_pkg::regfile_e RegFile    = ibex_pkg::RegFileFPGAl
     )(
         input  logic               clk_i,
         input  logic               rst_ni,
@@ -116,9 +122,14 @@ module vproc_top import vproc_pkg::*; #(
     logic [31:0] cpi_xreg;
 
     ibex_top #(
+        .RegFile                ( RegFile                            ),
+        .MHPCounterNum          ( 10                                 ),
+        .RV32M                  ( ibex_pkg::RV32MFast                ),
+        .RV32B                  ( ibex_pkg::RV32BNone                ),
+        .DbgTriggerEn           ( DbgTriggerEn                       ),
+        .DbgHwBreakNum          ( DbgHwBreakNum                      ),
         .DmHaltAddr             ( 32'h00000000                       ),
         .DmExceptionAddr        ( 32'h00000000                       ),
-        .RV32M                  ( ibex_pkg::RV32MFast                ),
         .ExternalCSRs           ( VECT_CSR_CNT                       ),
         // LOAD-FP, STORE-FP and VECTOR opcodes
         .CoprocOpcodes          ( 32'h00200202                       )
