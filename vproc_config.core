@@ -1,0 +1,16 @@
+CAPI=2:
+name: "tuwien:vicuna:vproc_config"
+description: "Configuration for Vicuna Vproc, generated with config.mk"
+
+filesets:
+  files_rtl:
+    depend:
+      - tuwien:vicuna:vproc_pkg
+    files:
+      - rtl/vproc_config.sv
+    file_type: systemVerilogSource
+
+targets:
+  default:
+    filesets:
+      - files_rtl
