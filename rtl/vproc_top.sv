@@ -12,7 +12,7 @@ module vproc_top import vproc_pkg::*; #(
         parameter int unsigned     DbgHwBreakNum    = 1,
         parameter int unsigned     DmHaltAddr       = 32'h1A110800,
         parameter int unsigned     DmExceptionAddr  = 32'h1A110808,
-        parameter ibex_pkg::regfile_e RegFile        = ibex_pkg::RegFileFPGA
+        parameter ibex_xif_pkg::regfile_e RegFile        = ibex_xif_pkg::RegFileFPGA
     )(
         input  logic               clk_i,
         input  logic               rst_ni,
@@ -124,11 +124,11 @@ module vproc_top import vproc_pkg::*; #(
     logic        cpi_xreg_valid;
     logic [31:0] cpi_xreg;
 
-    ibex_top #(
+    ibex_xif_top #(
         .RegFile                ( RegFile                            ),
         .MHPMCounterNum         ( 10                                 ),
-        .RV32M                  ( ibex_pkg::RV32MFast                ),
-        .RV32B                  ( ibex_pkg::RV32BNone                ),
+        .RV32M                  ( ibex_xif_pkg::RV32MFast                ),
+        .RV32B                  ( ibex_xif_pkg::RV32BNone                ),
         .ExternalCSRs           ( VECT_CSR_CNT                       ),
         .DbgTriggerEn           ( DbgTriggerEn                       ),
         .DbgHwBreakNum          ( DbgHwBreakNum                      ),

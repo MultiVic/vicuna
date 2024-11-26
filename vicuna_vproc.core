@@ -6,7 +6,7 @@ filesets:
     depend:
       - tuwien:vicuna:vproc_pkg
       - tuwien:vicuna:vproc_config
-      - lowrisc:ibex:ibex_top
+      - lowrisc_xif:ibex:ibex_top
       
     files:
       - rtl/vproc_alu.sv
