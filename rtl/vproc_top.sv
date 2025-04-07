@@ -126,9 +126,9 @@ module vproc_top import vproc_pkg::*; #(
 
     ibex_xif_top #(
         .RegFile                ( RegFile                            ),
-        .MHPMCounterNum         ( 2                                  ),
-        .RV32M                  ( ibex_xif_pkg::RV32MFast                ),
-        .RV32B                  ( ibex_xif_pkg::RV32BNone                ),
+        .MHPMCounterNum         ( 0                                  ),
+        .RV32M                  ( ibex_xif_pkg::RV32MFast            ),
+        .RV32B                  ( ibex_xif_pkg::RV32BNone            ),
         .ExternalCSRs           ( VECT_CSR_CNT                       ),
         .DbgTriggerEn           ( DbgTriggerEn                       ),
         .DbgHwBreakNum          ( DbgHwBreakNum                      ),
