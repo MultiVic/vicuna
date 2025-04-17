@@ -283,7 +283,6 @@ module vproc_top import vproc_pkg::*; #(
     logic                vdata_err;
     logic [VMEM_W-1:0]   vdata_rdata;
     logic                vdata_req;
-    logic                vdata_req_q;
     logic [31:0]         vdata_addr;
     logic                vdata_we;
     logic [VMEM_W/8-1:0] vdata_be;
@@ -400,18 +399,15 @@ module vproc_top import vproc_pkg::*; #(
     assign sdata_gnt = data_gnt & sdata_req & ~sdata_hold;
     assign vdata_gnt = data_gnt & vdata_req;
 
-    // Number of words transmitted per vector transaction (Vector Register length / Vector Memory width (usually 32 bit))
-    localparam int WordsPerVTrans = vproc_config::VREG_W / VMEM_W;
-    logic [5:0] vdata_counter;
-    logic [5:0] vdata_request_length; // starts with zero for a length of one
+    logic [31:0] outstanding_requests;  // Track difference between requests and responses for vector unit
     always_ff @(posedge clk_i or negedge rst_ni) begin
         // Reset state machine on reset
         if (~rst_ni) begin
-            sdata_waiting   <= 1'b0;
-            vdata_waiting   <= 1'b0;
-            sdata_wait_addr <= '0;
-            vdata_wait_id   <= '0;
-            vdata_counter   <= 2'b0;
+            sdata_waiting       <= 1'b0;
+            vdata_waiting       <= 1'b0;
+            sdata_wait_addr     <= '0;
+            vdata_wait_id       <= '0;
+            outstanding_requests <= '0;
         end else begin
             if (sdata_gnt) begin
                 sdata_waiting   <= 1'b1;
@@ -421,38 +417,27 @@ module vproc_top import vproc_pkg::*; #(
                 sdata_waiting <= 1'b0;
             end
 
-            // count the number of bytes sent by co-processor;
-            if (vdata_req) begin
-                vdata_request_length <= (vdata_request_length + 1);
-                if (vdata_request_length == (WordsPerVTrans-1)) begin
-                    vdata_request_length <= 'b0;
-                end
-                if (~vdata_req_q) begin
-                    vdata_request_length <= 'b0;
-                end
-                
+            // Track outstanding requests (granted requests - received responses)
+            if (vdata_gnt & ~vdata_rvalid) begin
+                outstanding_requests <= outstanding_requests + 1;
+            end else if (~vdata_gnt & vdata_rvalid) begin
+                outstanding_requests <= outstanding_requests - 1;
             end
+            // Both happen in same cycle - no change to counter
+            
             // Vector transaction is started directly when granted
             if (vdata_gnt & ~vdata_waiting) begin
                 vdata_waiting <= 1'b1;
                 vdata_wait_id <= vdata_req_id;
             end
-            if (vdata_rvalid & vdata_waiting) begin
-                // Count the number of words received for vector reads
-                vdata_counter <= vdata_counter + 1;
-
-                // Reset counter, when all words are received
-                // If granted start the next transaction immediately
-                if (vdata_counter == (WordsPerVTrans-1) | vdata_counter == vdata_request_length) begin
-                    vdata_waiting <= vdata_gnt;
-                    if (vdata_gnt) begin
-                        vdata_wait_id <= vdata_req_id;
-                    end
-                   vdata_counter <= 2'b0;
+            
+            // Clear waiting flag when all responses received
+            if (vdata_rvalid & (outstanding_requests == 1)) begin
+                vdata_waiting <= vdata_gnt; // Only stay in waiting if new grant
+                if (vdata_gnt) begin
+                    vdata_wait_id <= vdata_req_id;
                 end
             end
-
-            vdata_req_q <= vdata_req;
         end
     end
 
