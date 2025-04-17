@@ -1,4 +1,4 @@
-// Auto-generated on Do 27. Jul 10:09:56 CEST 2023
+// Auto-generated on Thu Apr 17 04:49:21 PM CEST 2025
 
 // Vector coprocessor default configuration package
 //
@@ -11,31 +11,33 @@
 // the vproc_core module can override any parameter with a different value.
 
 // Configuration details:
-// - Vector register width: 128 bits
+// - Vector register width: 1024 bits
 // - Vector pipelines:
-//   * Pipeline 0: 32 bits wide, contains VLSU, VALU, VMUL, VSLD, VELEM
-//     Uses 1 128-bit vreg read ports and write port 0
-// - Vector register file needs 2 read ports and 1 write ports
+//   * Pipeline 0: 32 bits wide, contains VLSU, VALU, VELEM
+//     Uses 1 1024-bit vreg read ports and write port 0
+//   * Pipeline 1: 512 bits wide, contains VMUL, VSLD
+//     Uses 2 1024-bit vreg read ports and write port 0
+// - Vector register file needs 4 read ports and 1 write ports
 
 package vproc_config;
 
     import vproc_pkg::*;
 
     parameter vreg_type    VREG_TYPE                   = VREG_GENERIC;
-    parameter int unsigned VREG_W                      = 128;
-    parameter int unsigned VPORT_RD_CNT                = 2;
+    parameter int unsigned VREG_W                      = 1024;
+    parameter int unsigned VPORT_RD_CNT                = 4;
     parameter int unsigned VPORT_RD_W   [VPORT_RD_CNT] = '{default: VREG_W};
     parameter int unsigned VPORT_WR_CNT                = 1;
     parameter int unsigned VPORT_WR_W   [VPORT_WR_CNT] = '{default: VREG_W};
 
-    parameter int unsigned PIPE_CNT                    = 1;
+    parameter int unsigned PIPE_CNT                    = 2;
     parameter bit [UNIT_CNT-1:0] PIPE_UNITS [PIPE_CNT] = '{
-        (UNIT_CNT'(1) << UNIT_LSU) | (UNIT_CNT'(1) << UNIT_ALU) | (UNIT_CNT'(1) << UNIT_MUL) | (UNIT_CNT'(1) << UNIT_SLD) | (UNIT_CNT'(1) << UNIT_ELEM)
+        (UNIT_CNT'(1) << UNIT_LSU) | (UNIT_CNT'(1) << UNIT_ALU) | (UNIT_CNT'(1) << UNIT_ELEM), (UNIT_CNT'(1) << UNIT_MUL) | (UNIT_CNT'(1) << UNIT_SLD)
     };
-    parameter int unsigned PIPE_W           [PIPE_CNT] = '{32};
-    parameter int unsigned PIPE_VPORT_CNT   [PIPE_CNT] = '{1};
-    parameter int unsigned PIPE_VPORT_IDX   [PIPE_CNT] = '{1};
-    parameter int unsigned PIPE_VPORT_WR    [PIPE_CNT] = '{0};
+    parameter int unsigned PIPE_W           [PIPE_CNT] = '{32, 512};
+    parameter int unsigned PIPE_VPORT_CNT   [PIPE_CNT] = '{1, 2};
+    parameter int unsigned PIPE_VPORT_IDX   [PIPE_CNT] = '{1, 2};
+    parameter int unsigned PIPE_VPORT_WR    [PIPE_CNT] = '{0, 0};
 
     parameter int unsigned VLSU_QUEUE_SZ               = 4;
     parameter bit [VLSU_FLAGS_W-1:0] VLSU_FLAGS        = '0;

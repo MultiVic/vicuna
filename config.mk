@@ -21,7 +21,7 @@
 #    pipelines (choose 1, 2, 3, or 5 pipelines by setting this variable to
 #    compact, dual, triple, or legacy, respectively).
 
-VPROC_CONFIG_PKG ?= vproc_config.sv
+VPROC_CONFIG_PKG ?= rtl/vproc_config.sv
 
 VPROC_CONFIG ?= compact
 ifeq ($(VPROC_CONFIG), compact)
