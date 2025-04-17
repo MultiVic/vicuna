@@ -399,7 +399,7 @@ module vproc_top import vproc_pkg::*; #(
     assign sdata_gnt = data_gnt & sdata_req & ~sdata_hold;
     assign vdata_gnt = data_gnt & vdata_req;
 
-    logic [31:0] outstanding_requests;  // Track difference between requests and responses for vector unit
+    logic [2**X_ID_WIDTH-1:0][7:0] outstanding_requests;  // Track per-ID outstanding requests
     always_ff @(posedge clk_i or negedge rst_ni) begin
         // Reset state machine on reset
         if (~rst_ni) begin
@@ -417,13 +417,21 @@ module vproc_top import vproc_pkg::*; #(
                 sdata_waiting <= 1'b0;
             end
 
-            // Track outstanding requests (granted requests - received responses)
-            if (vdata_gnt & ~vdata_rvalid) begin
-                outstanding_requests <= outstanding_requests + 1;
-            end else if (~vdata_gnt & vdata_rvalid) begin
-                outstanding_requests <= outstanding_requests - 1;
+            // Update outstanding requests based on granted and valid signals
+            if (vdata_gnt && vdata_rvalid) begin
+                if (vdata_req_id != vdata_wait_id) begin
+                    // Different IDs - handle both operations
+                    outstanding_requests[vdata_req_id] <= outstanding_requests[vdata_req_id] + 1;
+                    outstanding_requests[vdata_wait_id] <= outstanding_requests[vdata_wait_id] - 1;
+                end
+                // If same ID, counter stays the same
+            end else if (vdata_gnt) begin
+                // Only granting a new request
+                outstanding_requests[vdata_req_id] <= outstanding_requests[vdata_req_id] + 1;
+            end else if (vdata_rvalid) begin
+                // Only receiving a response
+                outstanding_requests[vdata_wait_id] <= outstanding_requests[vdata_wait_id] - 1;
             end
-            // Both happen in same cycle - no change to counter
             
             // Vector transaction is started directly when granted
             if (vdata_gnt & ~vdata_waiting) begin
@@ -431,11 +439,26 @@ module vproc_top import vproc_pkg::*; #(
                 vdata_wait_id <= vdata_req_id;
             end
             
-            // Clear waiting flag when all responses received
-            if (vdata_rvalid & (outstanding_requests == 1)) begin
-                vdata_waiting <= vdata_gnt; // Only stay in waiting if new grant
+            // When all responses for current ID are received
+            if (vdata_rvalid & (outstanding_requests[vdata_wait_id] == 1)) begin
+                vdata_waiting <= vdata_gnt; // Stay in waiting if new grant
+                
                 if (vdata_gnt) begin
+                    // New request, switch to this ID
                     vdata_wait_id <= vdata_req_id;
+                end else begin
+                    // Find next ID with outstanding requests
+                    logic found_next = 1'b0;
+                    for (int i = 0; i < 2**X_ID_WIDTH - 1; i++) begin
+                        // Start search from next ID after current one
+                        logic [X_ID_WIDTH-1:0] next_id = (vdata_wait_id + i + 1) % (2**X_ID_WIDTH);
+                        if (outstanding_requests[next_id] > 0 && !found_next) begin
+                            vdata_wait_id <= next_id;
+                            found_next = 1'b1;
+                        end
+                    end
+                    // Only remain in waiting state if we found another ID with pending requests
+                    vdata_waiting <= found_next;
                 end
             end
         end
