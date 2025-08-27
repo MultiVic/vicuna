@@ -11,6 +11,9 @@ As such, Vicuna supports vector element widths of 8, 16, and 32 bits and
 implements all vector load and store, vector integer[^1], vector fixed-point,
 vector integer reduction, vector mask, and vector permutation instructions.
 
+> [!NOTE]  
+> This repository is a fork of https://github.com/vproc/vicuna
+
 [^1]: Currently, the vector integer divide instructions (i.e., `vdiv`, `vdivu`,
 `vrem`, and `vremu`) are still missing.
 
@@ -64,15 +67,6 @@ If you use Vicuna in academic work, please cite
 }
 ```
 
-
-## Getting Started
-
-This repository uses submodules.  After cloning the repository, run following
-command in the top directory to initialize the submodules:
-```
-git submodule update --init --recursive
-```
-
 ### Compiling programs
 
 The [`sw/`](https://github.com/vproc/vicuna/tree/main/sw) subdirectory
@@ -106,11 +100,3 @@ functional units can be configured independently.
 Unless otherwise noted, everything in this repository is licensed under the
 [Solderpad Hardware License v2.1](https://solderpad.org/licenses/SHL-2.1/), a
 permissive free software license that is based on the Apache-2.0 license.
-
-The Ibex core (included in this repository as a submodule) is licensed under
-the Apache License, see [the Ibex repository](https://github.com/lowRISC/ibex)
-for details.
-
-The CV32E40X core (included in this repository as a submodule) is licensed
-under the Solderpad Hardware License, see
-[the CV32E40X repository](https://github.com/openhwgroup/cv32e40x) for details.
