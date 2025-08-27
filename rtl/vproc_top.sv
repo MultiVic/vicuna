@@ -1,4 +1,5 @@
 // Copyright TU Wien
+// Portions Copyright (c) 2025 Maximilian Kirschner
 // Licensed under the Solderpad Hardware License v2.1, see LICENSE.txt for details
 // SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
 
