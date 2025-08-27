@@ -21,6 +21,7 @@
 # Ignore log files and other temporary files
 *.log
 *.txt
+!License.txt
 *.csv
 *.vcd
 *.fst
